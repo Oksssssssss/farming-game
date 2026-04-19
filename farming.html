@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🌾 Little Valley Farm ULTRA+</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+body { margin:0; background:#0b0f1f; color:#fff; font-family:'Press Start 2P'; overflow:hidden; }
+.header { background:#1a0f1f; padding:10px; display:flex; justify-content:space-around; border-bottom:5px solid #8b0000; font-size:12px; }
+.tip { text-align:center; font-size:10px; color:#aaa; padding:5px; }
+.main { display:flex; height:calc(100vh - 70px); }
+.grid { display:grid; gap:4px; margin:auto; }
+.plot { width:40px; height:40px; background:#1c2b4a; display:flex; align-items:center; justify-content:center; font-size:20px; cursor:pointer; border-radius:6px; }
+.plot:hover { transform:scale(1.1); box-shadow:0 0 10px #8b0000; }
+.sidebar { width:260px; background:#140b1a; padding:10px; overflow:auto; border-left:3px solid #8b0000; }
+button { width:100%; margin:5px 0; padding:8px; background:#8b0000; border:none; color:white; cursor:pointer; font-size:10px; }
+.tool { display:block; margin:4px 0; padding:8px; background:#1c2b4a; cursor:pointer; font-size:10px; }
+.tool.active { outline:2px solid #8b0000; }
+.shop-item { background:#1c2b4a; padding:6px; margin:4px 0; cursor:pointer; font-size:10px; }
+.selected-seed { outline:2px solid #00bfff; }
+
+/* Tutorial popup */
+.tutorial {
+  position:fixed;
+  top:0;left:0;
+  width:100%;height:100%;
+  background:rgba(0,0,0,0.8);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  z-index:1000;
+}
+.tutorial-box {
+  background:#140b1a;
+  padding:20px;
+  border:3px solid #8b0000;
+  max-width:400px;
+  text-align:center;
+  font-size:10px;
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>Day <span id="day">1</span></div>
+  <div>💰 <span id="money">100</span></div>
+  <div>⚡ <span id="energy">100</span></div>
+  <div>🌾 Size <span id="size">5x5</span></div>
+</div>
+
+<div class="tip">Select Tool → Select Seed → Farm Smart 🌱</div>
+
+<div class="main">
+  <div id="grid" class="grid"></div>
+
+  <div class="sidebar">
+    <h4>🌱 Seeds</h4>
+    <div id="seedList"></div>
+
+    <h4>🛒 Buy Seeds</h4>
+    <div class="shop-item" onclick="buySeed('carrot')">🥕 Carrot (2) $20</div>
+    <div class="shop-item" onclick="buySeed('corn')">🌽 Corn (2) $40</div>
+    <div class="shop-item" onclick="buySeed('pumpkin')">🎃 Pumpkin (2) $80</div>
+
+    <h4>💧 Water</h4>
+    <div class="shop-item" onclick="upgradeWater()">Speed ($60)</div>
+    <div class="shop-item" onclick="buyAutoWater()">Auto ($150)</div>
+
+    <h4>📈 Upgrades</h4>
+    <div class="shop-item" onclick="upgradeFarm()">Expand ($<span id="upgradeCost">1000</span>)</div>
+
+    <h4>🧰 Tools</h4>
+    <div class="tool" id="tool_hoe" onclick="selectTool('hoe')">🪓 Till Soil</div>
+    <div class="tool" id="tool_plant" onclick="selectTool('plant')">🌱 Plant Seed</div>
+    <div class="tool" id="tool_water" onclick="selectTool('water')">💧 Water Crop</div>
+    <div class="tool" id="tool_harvest" onclick="selectTool('harvest')">👋 Harvest</div>
+
+    <button onclick="nextDay()">🌙 Next Day</button>
+  </div>
+</div>
+
+<!-- Tutorial -->
+<div id="tutorial" class="tutorial">
+  <div class="tutorial-box">
+    <h3>🌾 How to Play</h3>
+    <p>1. Buy seeds 🛒</p>
+    <p>2. Select a seed 🌱</p>
+    <p>3. Use 🪓 to till</p>
+    <p>4. Plant + water 💧</p>
+    <p>5. Wait days ⏳</p>
+    <p>6. Harvest 💰</p>
+    <button onclick="closeTutorial()">Start Game</button>
+  </div>
+</div>
+
+<script>
+let money = 100, energy = 100, day = 1;
+let tool = 'hoe', selectedSeed = null;
+let size = 5, maxSize = 20, upgradeCost = 1000;
+let seeds = { carrot:0, corn:0, pumpkin:0 };
+let waterBoost = 1, autoWater = false;
+
+// Sounds
+const sounds = {
+  click: new Audio('https://cdn.pixabay.com/audio/2022/03/15/audio_115b9b0b2c.mp3'),
+  plant: new Audio('https://cdn.pixabay.com/audio/2022/03/15/audio_2b6c8637b9.mp3'),
+  harvest: new Audio('https://cdn.pixabay.com/audio/2022/03/15/audio_8b5e2e6b69.mp3')
+};
+
+const crops = {
+  carrot:{grow:1,value:30,icon:'🥕'},
+  corn:{grow:3,value:70,icon:'🌽'},
+  pumpkin:{grow:3,value:140,icon:'🎃'}
+};
+
+let farm = [];
+
+function createFarm(){ farm = Array(size*size).fill().map(()=>({tilled:false,type:null,growth:0,watered:false})); }
+
+function updateUI(){
+  moneyEl.textContent = money;
+  energyEl.textContent = energy;
+  dayEl.textContent = day;
+  sizeEl.textContent = size+"x"+size;
+  upgradeCostEl.textContent = upgradeCost;
+}
+
+function renderSeeds(){
+  seedList.innerHTML='';
+  Object.keys(seeds).forEach(s=>{
+    if(seeds[s]>0){
+      const d=document.createElement('div');
+      d.className='shop-item '+(selectedSeed===s?'selected-seed':'');
+      d.textContent=`${crops[s].icon} ${s} x${seeds[s]}`;
+      d.onclick=()=>{ selectedSeed=s; renderSeeds(); sounds.click.play(); };
+      seedList.appendChild(d);
+    }
+  });
+}
+
+function render(){
+  grid.style.gridTemplateColumns = `repeat(${size}, 40px)`;
+  grid.innerHTML='';
+  farm.forEach((p,i)=>{
+    const d=document.createElement('div');
+    d.className='plot';
+    let icon='🟫';
+    if(p.tilled) icon='🌱';
+    if(p.type && p.growth>=crops[p.type].grow) icon=crops[p.type].icon;
+    else if(p.type) icon='🌿';
+    d.textContent=icon;
+    d.onclick=()=>clickPlot(i);
+    grid.appendChild(d);
+  });
+}
+
+function clickPlot(i){
+  const p=farm[i];
+  if(energy<=0) return alert('Sleep!');
+
+  if(tool==='hoe' && !p.tilled && !p.type){ p.tilled=true; energy-=2; sounds.click.play(); }
+
+  if(tool==='plant' && selectedSeed && p.tilled && !p.type){
+    if(seeds[selectedSeed]<=0) return alert('No seeds');
+    seeds[selectedSeed]--;
+    p.type=selectedSeed;
+    p.growth=0;
+    energy-=3;
+    sounds.plant.play();
+  }
+
+  if(tool==='water' && p.type && !p.watered){ p.watered=true; energy-=2; sounds.click.play(); }
+
+  if(tool==='harvest' && p.type && p.growth>=crops[p.type].grow){
+    money+=crops[p.type].value;
+    p.type=null;
+    p.growth=0;
+    p.watered=false;
+    p.tilled=false;
+    energy-=2;
+    sounds.harvest.play();
+  }
+
+  updateUI(); render(); renderSeeds();
+}
+
+function nextDay(){
+  day++; energy=100;
+  farm.forEach(p=>{
+    if(p.type && (p.watered||autoWater)) p.growth+=waterBoost;
+    p.watered=autoWater;
+  });
+  updateUI(); render();
+}
+
+function buySeed(type){
+  const price={carrot:20,corn:40,pumpkin:80}[type];
+  if(money<price) return alert('Not enough');
+  money-=price; seeds[type]+=2;
+  sounds.click.play();
+  updateUI(); renderSeeds();
+}
+
+function upgradeWater(){ if(money<60) return alert('Not enough'); money-=60; waterBoost++; sounds.click.play(); updateUI(); }
+function buyAutoWater(){ if(money<150) return alert('Not enough'); money-=150; autoWater=true; sounds.click.play(); updateUI(); }
+
+function upgradeFarm(){
+  if(size>=maxSize) return alert('Max size!');
+  if(money<upgradeCost) return alert('Not enough');
+  money-=upgradeCost; upgradeCost*=2; size+=5;
+  createFarm();
+  sounds.click.play();
+  updateUI(); render();
+}
+
+function selectTool(t){
+  tool=t;
+  document.querySelectorAll('.tool').forEach(el=>el.classList.remove('active'));
+  document.getElementById('tool_'+t).classList.add('active');
+  sounds.click.play();
+}
+
+function closeTutorial(){ document.getElementById('tutorial').style.display='none'; }
+
+const moneyEl=document.getElementById('money');
+const energyEl=document.getElementById('energy');
+const dayEl=document.getElementById('day');
+const sizeEl=document.getElementById('size');
+const upgradeCostEl=document.getElementById('upgradeCost');
+const grid=document.getElementById('grid');
+const seedList=document.getElementById('seedList');
+
+function init(){ createFarm(); updateUI(); render(); renderSeeds(); selectTool('hoe'); }
+
+init();
+</script>
+
+</body>
+</html>
